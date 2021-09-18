@@ -9,7 +9,7 @@
 pushd customfeeds
 mkdir temp
 git clone --depth=1 https://github.com/immortalwrt/packages -b openwrt-18.06 temp/packages
-git clone --depth=1 https://github.com/immortalwrt/luci -b openwrt-18.06 temp/luci
+git clone --depth=1 https://github.com/immortalwrt/luci -b openwrt-18.06-k5.4 temp/luci
 
 # Add luci-app-adguardhome
 cp -r temp/luci/applications/luci-app-adguardhome luci/applications/luci-app-adguardhome
@@ -17,11 +17,25 @@ cp -r temp/packages/net/adguardhome packages/net/adguardhome
 cp -r temp/packages/lang/node-yarn packages/lang/node-yarn
 cp -r temp/packages/devel/packr packages/devel/packr
 
+# Add luci-app-cpufreq
+cp -r temp/luci/applications/luci-app-cpufreq luci/applications/luci-app-cpufreq
+rm -rf ../package/lean/luci-app-cpufreq
+
+# Add luci-app-cpulimit
+cp -r temp/luci/applications/luci-app-cpulimit luci/applications/luci-app-cpulimit
+cp -r temp/packages/utils/cpulimit packages/cpulimit
+
+# Add luci-app-eqos
+cp -r temp/luci/applications/luci-app-eqos luci/applications/luci-app-eqos
+
 # Add luci-app-gowebdav
 cp -r temp/luci/applications/luci-app-gowebdav luci/applications/luci-app-gowebdav
 cp -r temp/packages/net/gowebdav packages/net/gowebdav
 
-# Add netdata
+# Add luci-proto-modemmanager
+cp -r temp/luci/protocols/luci-proto-modemmanager luci/protocols/luci-proto-modemmanager
+
+# Add luci-app-netdata
 rm -rf packages/admin/netdata
 rm -rf ../package/lean/luci-app-netdata
 cp -r temp/luci/applications/luci-app-netdata luci/applications/luci-app-netdata
@@ -30,6 +44,10 @@ cp -r temp/packages/admin/netdata packages/admin/netdata
 # Add luci-app-smartdns
 cp -r temp/luci/applications/luci-app-smartdns luci/applications/luci-app-smartdns
 cp -r temp/packages/net/smartdns packages/net/smartdns
+
+# Add luci-app-verysync
+cp -r temp/luci/applications/luci-app-smartdns luci/applications/luci-app-verysync
+cp -r temp/packages/net/verysync packages/net/verysync
 
 # Add tmate
 cp -r temp/packages/net/tmate packages/net/tmate
