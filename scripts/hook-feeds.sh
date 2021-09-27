@@ -5,7 +5,12 @@
 # Blog: https://mlapp.cn
 #=================================================
 
-# Svn checkout packages from immortalwrt's repository
+# Clone Lean's feeds
+mkdir customfeeds
+git clone --depth=1 https://github.com/coolsnowwolf/packages customfeeds/packages
+git clone --depth=1 https://github.com/coolsnowwolf/luci customfeeds/luci
+
+# Clone ImmortalWrt's feeds
 pushd customfeeds
 mkdir temp
 git clone --depth=1 https://github.com/immortalwrt/packages -b openwrt-18.06 temp/packages
@@ -45,10 +50,6 @@ cp -r temp/packages/admin/netdata packages/admin/netdata
 cp -r temp/luci/applications/luci-app-smartdns luci/applications/luci-app-smartdns
 cp -r temp/packages/net/smartdns packages/net/smartdns
 
-# Add luci-app-verysync
-cp -r temp/luci/applications/luci-app-smartdns luci/applications/luci-app-verysync
-cp -r temp/packages/net/verysync packages/net/verysync
-
 # Add tmate
 cp -r temp/packages/net/tmate packages/net/tmate
 cp -r temp/packages/libs/msgpack-c packages/libs/msgpack-c
@@ -75,3 +76,4 @@ echo "src-link luci $luci_feed" >> feeds.conf.default
 
 # Update feeds
 ./scripts/feeds update -a
+./scripts/feeds install -a

@@ -21,7 +21,7 @@ env:
   CONFIG_FILE: config/bcm27xx/rpi4-lean-target.config
   DIY_SH: scripts/lean-openwrt.sh
   WEBROOT: /data/dnmp/www/openwrt.cc
-  UPLOAD_RCLONE: true
+  UPLOAD_RELEASE: false
   TZ: Asia/Shanghai
 
 jobs:
@@ -30,56 +30,55 @@ jobs:
 
     outputs:
       OPENWRTROOT: ${{ steps.prepare.outputs.OPENWRTROOT }}
-      PLATFORM: ${{ steps.compile.outputs.PLATFORM }}
-      TARGET: ${{ steps.compile.outputs.TARGET }}
-      SUBTARGET: ${{ steps.compile.outputs.SUBTARGET }}
+      PLATFORM: ${{ steps.packages.outputs.PLATFORM }}
+      TARGET: ${{ steps.packages.outputs.TARGET }}
+      SUBTARGET: ${{ steps.packages.outputs.SUBTARGET }}
       GENERATE_STATUS: ${{ steps.generate.outputs.GENERATE_STATUS }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@main
-
       - name: Initialization Environment
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-1804) rdate
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
           sudo ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+          docker image prune -a -f
+
+      - name: Free Up More Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 256
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          overprovision-lvm: 'true'
+
+      - name: Checkout
+        uses: actions/checkout@main
 
       - name: Prepare Toolchain Image
         id: prepare
         run: |
           df -hT $PWD
-          sudo swapoff -a
-          sudo chown -R runner:runner /mnt
-          sudo rm -f /mnt/swapfile
-          wget -q https://github.com/SuLingGG/OpenWrt-Toolchain/releases/download/$TOOLCHAIN_TAG/$TOOLCHAIN_NAME -O /mnt/toolchain-image.img
-          mkdir /mnt/openwrt-ro openwrt workdir overlay
-          sudo mount -o loop /mnt/toolchain-image.img /mnt/openwrt-ro
-          sudo mount -t overlay overlay -o lowerdir=/mnt/openwrt-ro,upperdir=overlay,workdir=workdir openwrt
+          wget -q https://github.com/SuLingGG/OpenWrt-Toolchain/releases/download/$TOOLCHAIN_TAG/$TOOLCHAIN_NAME -O toolchain-image.img
+          mkdir openwrt-ro openwrt workdir overlay
+          sudo mount -o loop toolchain-image.img openwrt-ro
+          sudo mount -t overlay overlay -o lowerdir=openwrt-ro,upperdir=overlay,workdir=workdir openwrt
           cd openwrt
           echo "OPENWRTROOT=$PWD" >> $GITHUB_ENV
           echo "::set-output name=OPENWRTROOT::$(echo $PWD)"
           git pull
 
-      - name: Update Feeds
-        id: update
+      - name: Install Feeds
+        id: feeds
         run: |
           cd $OPENWRTROOT
-          mkdir customfeeds
-          git clone --depth=1 https://github.com/coolsnowwolf/packages customfeeds/packages
-          git clone --depth=1 https://github.com/coolsnowwolf/luci customfeeds/luci
           chmod +x ../scripts/*.sh
           ../scripts/hook-feeds.sh
-
-      - name: Install Feeds
-        run: |
-          cd $OPENWRTROOT
-          ./scripts/feeds install -a
 
       - name: Load Custom Configuration
         run: |
@@ -94,6 +93,7 @@ jobs:
           ../scripts/preset-clash-core.sh armv8
           ../scripts/preset-terminal-tools.sh
           ../scripts/enable-rpi4-wifi.sh
+          sed -i 's/5.10/5.4/g' target/linux/bcm27xx/Makefile
 
       - name: Download Package
         id: package
@@ -104,12 +104,18 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
-      - name: Compile Packages
-        id: compile
+      - name: Compile Tools
+        id: tools
         run: |
           cd $OPENWRTROOT
           echo -e "$(nproc) thread compile"
           make tools/compile -j$(nproc) || make tools/compile -j1 V=s
+
+      - name: Compile Packages
+        id: packages
+        run: |
+          cd $OPENWRTROOT
+          echo -e "$(nproc) thread compile"
           make target/compile -j$(nproc) || make target/compile -j1 V=s IGNORE_ERRORS=1
           make diffconfig
           make package/compile -j$(nproc) IGNORE_ERRORS=1 || make package/compile -j1 V=s IGNORE_ERRORS=1
@@ -129,7 +135,7 @@ jobs:
           echo "::set-output name=COMPILE_STATUS::success"
 
       - name: Generate Firmware
-        if: steps.compile.outputs.COMPILE_STATUS == 'success'
+        if: steps.packages.outputs.COMPILE_STATUS == 'success'
         id: generate
         run: |
           cd data/opkg
@@ -201,7 +207,7 @@ jobs:
         env:
           RCLONE_PACKAGE: ${{ secrets.RCLONE_PACKAGE }}
           RCLONE_FIRMWARE: ${{ secrets.RCLONE_FIRMWARE }}
-        if: env.GENERATE_STATUS == 'success' && env.UPLOAD_RCLONE == 'true' && env.RCLONE_PACKAGE != ''
+        if: env.GENERATE_STATUS == 'success' && env.RCLONE_PACKAGE != null
         run: |
           cd $OPENWRTROOT
           curl https://rclone.org/install.sh | sudo bash
@@ -220,7 +226,7 @@ jobs:
           SOURCE_TARGETS: "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
           DEST_TARGETS: "${{ env.WEBROOT }}/releases/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
           REMOTE_PRIVATEKEY: "${{secrets.HOSTHATCH_PRIVATEKEY}}"
-        if: env.REMOTE_PRIVATEKEY != null
+        if: env.GENERATE_STATUS == 'success' && env.REMOTE_PRIVATEKEY != null
         run: |
           mkdir -p ~/.ssh/
           install -m 600 /dev/null ~/.ssh/id_rsa
@@ -237,7 +243,7 @@ jobs:
           SOURCE_TARGETS: "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
           DEST_TARGETS: "${{ env.WEBROOT }}/releases/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
           REMOTE_PRIVATEKEY: "${{secrets.PACIFICRACK_PRIVATEKEY}}"
-        if: env.REMOTE_PRIVATEKEY != null
+        if: env.GENERATE_STATUS == 'success' && env.REMOTE_PRIVATEKEY != null
         run: |
           mkdir -p ~/.ssh/
           install -m 600 /dev/null ~/.ssh/id_rsa
@@ -254,9 +260,22 @@ jobs:
           cd $OPENWRTROOT
           zip -qr $TARGET-$SUBTARGET.zip bin
           cd bin/targets/$TARGET/$SUBTARGET
-          rm -rf packages packages-server.zip
+          rm -rf packages
           df -hT $PWD
           echo "::set-output name=ORGANIZE_STATUS::success"
+
+      - name: Deploy Files To Release
+        id: release
+        uses: ncipollo/release-action@v1.8.0
+        if: env.GENERATE_STATUS == 'success' && env.UPLOAD_RELEASE == 'true'
+        with:
+          name: OpenWrt-${{ env.TARGET }}-${{ env.SUBTARGET }}
+          allowUpdates: true
+          tag: ${{ env.TARGET }}-${{ env.SUBTARGET }}
+          commit: main
+          replacesArtifacts: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*
 
       - name: Deploy Files To Onedrive
         id: onedrive
@@ -264,7 +283,7 @@ jobs:
           SOURCE_TARGETS: "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
           DEST_TARGETS: "releases/targets/${{ env.TARGET }}"
           ONEDRIVEUPLOADER_CONF: "${{ secrets.ONEDRIVEUPLOADER_CONF }}"
-        if: env.ONEDRIVEUPLOADER_CONF != null
+        if: env.GENERATE_STATUS == 'success' && env.ONEDRIVEUPLOADER_CONF != null
         run: |
           echo -e "${ONEDRIVEUPLOADER_CONF}" | tee ./auth.json > /dev/null
           wget -q https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader
