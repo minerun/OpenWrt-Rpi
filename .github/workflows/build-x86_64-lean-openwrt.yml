@@ -158,7 +158,7 @@ jobs:
 
       - name: Organize files
         id: organize
-        if: env.UPLOAD_FIRMWARE == 'true'
+        if: env.GENERATE_STATUS == 'success'
         run: |
           cd $OPENWRTROOT/bin/targets/*/*
           rm -rf packages
