@@ -171,14 +171,18 @@ jobs:
           echo "TARGET=$(echo '${{needs.Build.outputs.TARGET}}')" >> $GITHUB_ENV
           echo "SUBTARGET=$(echo '${{needs.Build.outputs.SUBTARGET}}')" >> $GITHUB_ENV
           echo "GENERATE_STATUS=$(echo '${{needs.Build.outputs.GENERATE_STATUS}}')" >> $GITHUB_ENV
-      - name: Organize files
+
+      - name: Organize Files
         id: organize
         if: env.GENERATE_STATUS == 'success'
         run: |
-          cd $OPENWRTROOT/bin/targets/*/*
+          cd $OPENWRTROOT
+          zip -qr $TARGET-$SUBTARGET.zip bin
+          cd bin/targets/$TARGET/$SUBTARGET
           rm -rf packages
+          df -hT $PWD
+          echo "::set-output name=ORGANIZE_STATUS::success"
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-          echo "::set-output name=status::success"
 
       - name: Upload firmware directory
         uses: actions/upload-artifact@main
