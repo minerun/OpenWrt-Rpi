@@ -171,124 +171,142 @@ jobs:
           make checksum
           echo "::set-output name=GENERATE_STATUS::success"
 
-      - name: Upload Bin Folder
+      - name: Organize files
+        id: organize
+        if: steps.generate.outputs.GENERATE_STATUS == 'success'
+        run: |
+          cd $OPENWRTROOT
+          tree
+          cd $OPENWRTROOT/bin/targets/*/*
+          rm -rf packages
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "::set-output name=status::success"
+
+      - name: Upload firmware directory
         uses: actions/upload-artifact@main
         if: steps.generate.outputs.GENERATE_STATUS == 'success'
         with:
-          name: bin-archive
-          path: openwrt/bin
+          name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: ${{ env.FIRMWARE }}
 
-  Upload:
-    needs: [Build]
-    runs-on: ubuntu-18.04
+  #     - name: Upload Bin Folder
+  #       uses: actions/upload-artifact@main
+  #       if: steps.generate.outputs.GENERATE_STATUS == 'success'
+  #       with:
+  #         name: bin-archive
+  #         path: openwrt/bin
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@main
+  # Upload:
+  #   needs: [Build]
+  #   runs-on: ubuntu-18.04
 
-      - name: Restore Variables
-        run: |
-          echo "OPENWRTROOT=$(echo '${{needs.Build.outputs.OPENWRTROOT}}')" >> $GITHUB_ENV
-          echo "PLATFORM=$(echo '${{needs.Build.outputs.PLATFORM}}')" >> $GITHUB_ENV
-          echo "TARGET=$(echo '${{needs.Build.outputs.TARGET}}')" >> $GITHUB_ENV
-          echo "SUBTARGET=$(echo '${{needs.Build.outputs.SUBTARGET}}')" >> $GITHUB_ENV
-          echo "GENERATE_STATUS=$(echo '${{needs.Build.outputs.GENERATE_STATUS}}')" >> $GITHUB_ENV
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@main
 
-      - name: Download Bin Folder
-        uses: actions/download-artifact@v2
-        if: env.GENERATE_STATUS == 'success'
-        with:
-          name: bin-archive
-          path: openwrt/bin
+  #     - name: Restore Variables
+  #       run: |
+  #         echo "OPENWRTROOT=$(echo '${{needs.Build.outputs.OPENWRTROOT}}')" >> $GITHUB_ENV
+  #         echo "PLATFORM=$(echo '${{needs.Build.outputs.PLATFORM}}')" >> $GITHUB_ENV
+  #         echo "TARGET=$(echo '${{needs.Build.outputs.TARGET}}')" >> $GITHUB_ENV
+  #         echo "SUBTARGET=$(echo '${{needs.Build.outputs.SUBTARGET}}')" >> $GITHUB_ENV
+  #         echo "GENERATE_STATUS=$(echo '${{needs.Build.outputs.GENERATE_STATUS}}')" >> $GITHUB_ENV
 
-      - name: Deploy Packages-Server
-        if: env.GENERATE_STATUS == 'success'
-        run: |
-          sudo ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-          mkdir -p server/web/snapshots/targets/$TARGET/$SUBTARGET
-          cp -r $OPENWRTROOT/bin/packages server/web/snapshots
-          cp -r $OPENWRTROOT/bin/targets/$TARGET/$SUBTARGET/packages server/web/snapshots/targets/$TARGET/$SUBTARGET
-          mv server packages-server
-          zip -qrm packages-server.zip packages-server
-          mv packages-server.zip $OPENWRTROOT/bin/targets/$TARGET/$SUBTARGET
+  #     - name: Download Bin Folder
+  #       uses: actions/download-artifact@v2
+  #       if: env.GENERATE_STATUS == 'success'
+  #       with:
+  #         name: bin-archive
+  #         path: openwrt/bin
 
-      - name: Deploy Files To HostHatch Node
-        id: hosthatch
-        env:
-          HOST: "${{ secrets.REMOTE_USER }}@${{ secrets.HOSTHATCH_IP }}"
-          SOURCE_TARGETS: "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
-          DEST_TARGETS: "${{ env.WEBROOT }}/releases/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
-          REMOTE_PRIVATEKEY: "${{secrets.HOSTHATCH_PRIVATEKEY}}"
-        if: env.GENERATE_STATUS == 'success' && env.REMOTE_PRIVATEKEY != null
-        run: |
-          mkdir -p ~/.ssh/
-          install -m 600 /dev/null ~/.ssh/id_rsa
-          echo "${{secrets.HOSTHATCH_PRIVATEKEY}}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh -q -t -i ~/.ssh/id_rsa -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no $HOST \
-          bash -c "'mkdir -p $WEBROOT/releases/targets/$TARGET/$SUBTARGET'"
-          rsync -chavP --delete -e 'ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no' $SOURCE_TARGETS $HOST:$DEST_TARGETS
+  #     - name: Deploy Packages-Server
+  #       if: env.GENERATE_STATUS == 'success'
+  #       run: |
+  #         sudo ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+  #         mkdir -p server/web/snapshots/targets/$TARGET/$SUBTARGET
+  #         cp -r $OPENWRTROOT/bin/packages server/web/snapshots
+  #         cp -r $OPENWRTROOT/bin/targets/$TARGET/$SUBTARGET/packages server/web/snapshots/targets/$TARGET/$SUBTARGET
+  #         mv server packages-server
+  #         zip -qrm packages-server.zip packages-server
+  #         mv packages-server.zip $OPENWRTROOT/bin/targets/$TARGET/$SUBTARGET
 
-      - name: Deploy Files To PacificRack Node
-        id: pacificrack
-        env:
-          HOST: "${{ secrets.REMOTE_USER }}@${{ secrets.PACIFICRACK_IP }}"
-          SOURCE_TARGETS: "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
-          DEST_TARGETS: "${{ env.WEBROOT }}/releases/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
-          REMOTE_PRIVATEKEY: "${{secrets.PACIFICRACK_PRIVATEKEY}}"
-        if: env.GENERATE_STATUS == 'success' && env.REMOTE_PRIVATEKEY != null
-        run: |
-          mkdir -p ~/.ssh/
-          install -m 600 /dev/null ~/.ssh/id_rsa
-          echo "${{secrets.PACIFICRACK_PRIVATEKEY}}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh -q -t -i ~/.ssh/id_rsa -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no $HOST \
-          bash -c "'mkdir -p $WEBROOT/releases/targets/$TARGET/$SUBTARGET'"
-          rsync -chavP --delete -e 'ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no' $SOURCE_TARGETS $HOST:$DEST_TARGETS
-          echo "::warning file=openwrt.cc::Download Link: https://openwrt.cc/releases/targets/bcm27xx/bcm2711"
+  #     - name: Deploy Files To HostHatch Node
+  #       id: hosthatch
+  #       env:
+  #         HOST: "${{ secrets.REMOTE_USER }}@${{ secrets.HOSTHATCH_IP }}"
+  #         SOURCE_TARGETS: "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
+  #         DEST_TARGETS: "${{ env.WEBROOT }}/releases/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
+  #         REMOTE_PRIVATEKEY: "${{secrets.HOSTHATCH_PRIVATEKEY}}"
+  #       if: env.GENERATE_STATUS == 'success' && env.REMOTE_PRIVATEKEY != null
+  #       run: |
+  #         mkdir -p ~/.ssh/
+  #         install -m 600 /dev/null ~/.ssh/id_rsa
+  #         echo "${{secrets.HOSTHATCH_PRIVATEKEY}}" > ~/.ssh/id_rsa
+  #         chmod 600 ~/.ssh/id_rsa
+  #         ssh -q -t -i ~/.ssh/id_rsa -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no $HOST \
+  #         bash -c "'mkdir -p $WEBROOT/releases/targets/$TARGET/$SUBTARGET'"
+  #         rsync -chavP --delete -e 'ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no' $SOURCE_TARGETS $HOST:$DEST_TARGETS
 
-      - name: Organize Files
-        id: organize
-        if: env.GENERATE_STATUS == 'success'
-        run: |
-          cd $OPENWRTROOT
-          zip -qr $TARGET-$SUBTARGET.zip bin
-          cd bin/targets/$TARGET/$SUBTARGET
-          rm -rf packages
-          df -hT $PWD
-          echo "::set-output name=ORGANIZE_STATUS::success"
+  #     - name: Deploy Files To PacificRack Node
+  #       id: pacificrack
+  #       env:
+  #         HOST: "${{ secrets.REMOTE_USER }}@${{ secrets.PACIFICRACK_IP }}"
+  #         SOURCE_TARGETS: "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
+  #         DEST_TARGETS: "${{ env.WEBROOT }}/releases/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
+  #         REMOTE_PRIVATEKEY: "${{secrets.PACIFICRACK_PRIVATEKEY}}"
+  #       if: env.GENERATE_STATUS == 'success' && env.REMOTE_PRIVATEKEY != null
+  #       run: |
+  #         mkdir -p ~/.ssh/
+  #         install -m 600 /dev/null ~/.ssh/id_rsa
+  #         echo "${{secrets.PACIFICRACK_PRIVATEKEY}}" > ~/.ssh/id_rsa
+  #         chmod 600 ~/.ssh/id_rsa
+  #         ssh -q -t -i ~/.ssh/id_rsa -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no $HOST \
+  #         bash -c "'mkdir -p $WEBROOT/releases/targets/$TARGET/$SUBTARGET'"
+  #         rsync -chavP --delete -e 'ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no' $SOURCE_TARGETS $HOST:$DEST_TARGETS
+  #         echo "::warning file=openwrt.cc::Download Link: https://openwrt.cc/releases/targets/bcm27xx/bcm2711"
 
-      - name: Deploy Files To Release
-        id: release
-        uses: ncipollo/release-action@v1.8.0
-        if: env.GENERATE_STATUS == 'success' && env.UPLOAD_RELEASE == 'true'
-        with:
-          name: OpenWrt-${{ env.TARGET }}-${{ env.SUBTARGET }}
-          allowUpdates: true
-          tag: ${{ env.TARGET }}-${{ env.SUBTARGET }}
-          commit: main
-          replacesArtifacts: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*
+  #     - name: Organize Files
+  #       id: organize
+  #       if: env.GENERATE_STATUS == 'success'
+  #       run: |
+  #         cd $OPENWRTROOT
+  #         zip -qr $TARGET-$SUBTARGET.zip bin
+  #         cd bin/targets/$TARGET/$SUBTARGET
+  #         rm -rf packages
+  #         df -hT $PWD
+  #         echo "::set-output name=ORGANIZE_STATUS::success"
 
-      - name: Deploy Files To Onedrive
-        id: onedrive
-        env:
-          SOURCE_TARGETS: "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
-          DEST_TARGETS: "releases/targets/${{ env.TARGET }}"
-          ONEDRIVEUPLOADER_CONF: "${{ secrets.ONEDRIVEUPLOADER_CONF }}"
-        if: env.GENERATE_STATUS == 'success' && env.ONEDRIVEUPLOADER_CONF != null
-        run: |
-          echo -e "${ONEDRIVEUPLOADER_CONF}" | tee ./auth.json > /dev/null
-          wget -q https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader
-          chmod +x OneDriveUploader
-          ./OneDriveUploader -f -c "./auth.json" -s $SOURCE_TARGETS -r $DEST_TARGETS
-          ./OneDriveUploader -f -c "./auth.json" -s $SOURCE_TARGETS -r "archive/$(date +%Y)/$(date +%m)/$(date +%d)/releases/targets/$TARGET/$SUBTARGET"
-          ./OneDriveUploader -f -c "./auth.json" -s $OPENWRTROOT/$TARGET-$SUBTARGET.zip -r "archive/$(date +%Y)/$(date +%m)/$(date +%d)/releases/bin-archive"
-          echo "::warning file=mirror.openwrt.cc::Download Link: https://mirror.openwrt.cc/releases/targets/bcm27xx/bcm2711"
-    
-      - name: Delete Artifacts
-        uses: geekyeggo/delete-artifact@v1
-        with:
-          name: |
-            bin-archive
+  #     - name: Deploy Files To Release
+  #       id: release
+  #       uses: ncipollo/release-action@v1.8.0
+  #       if: env.GENERATE_STATUS == 'success' && env.UPLOAD_RELEASE == 'true'
+  #       with:
+  #         name: OpenWrt-${{ env.TARGET }}-${{ env.SUBTARGET }}
+  #         allowUpdates: true
+  #         tag: ${{ env.TARGET }}-${{ env.SUBTARGET }}
+  #         commit: main
+  #         replacesArtifacts: true
+  #         token: ${{ secrets.GITHUB_TOKEN }}
+  #         artifacts: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/*
+
+  #     - name: Deploy Files To Onedrive
+  #       id: onedrive
+  #       env:
+  #         SOURCE_TARGETS: "openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/"
+  #         DEST_TARGETS: "releases/targets/${{ env.TARGET }}"
+  #         ONEDRIVEUPLOADER_CONF: "${{ secrets.ONEDRIVEUPLOADER_CONF }}"
+  #       if: env.GENERATE_STATUS == 'success' && env.ONEDRIVEUPLOADER_CONF != null
+  #       run: |
+  #         echo -e "${ONEDRIVEUPLOADER_CONF}" | tee ./auth.json > /dev/null
+  #         wget -q https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader
+  #         chmod +x OneDriveUploader
+  #         ./OneDriveUploader -f -c "./auth.json" -s $SOURCE_TARGETS -r $DEST_TARGETS
+  #         ./OneDriveUploader -f -c "./auth.json" -s $SOURCE_TARGETS -r "archive/$(date +%Y)/$(date +%m)/$(date +%d)/releases/targets/$TARGET/$SUBTARGET"
+  #         ./OneDriveUploader -f -c "./auth.json" -s $OPENWRTROOT/$TARGET-$SUBTARGET.zip -r "archive/$(date +%Y)/$(date +%m)/$(date +%d)/releases/bin-archive"
+  #         echo "::warning file=mirror.openwrt.cc::Download Link: https://mirror.openwrt.cc/releases/targets/bcm27xx/bcm2711"
+
+  #     - name: Delete Artifacts
+  #       uses: geekyeggo/delete-artifact@v1
+  #       with:
+  #         name: |
+  #           bin-archive
